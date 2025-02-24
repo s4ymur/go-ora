@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
-	"strings"
 )
 
 /*
@@ -35,13 +34,8 @@ func ConvertBinaryFloat(bytes []byte) float64 {
 	}
 	u := binary.BigEndian.Uint32(bytes)
 	x := math.Float32frombits(u)
-	strX := fmt.Sprintf("%v", x)
-	index := strings.LastIndex(strX, ".")
-	if index < 0 {
-		return float64(x)
-	}
-	exp := len(strX) - index - 1
-	return math.Trunc(float64(x)*math.Pow10(exp)) / math.Pow10(exp)
+
+	return float64(x)
 	//test2 := float64(test)
 	//return test2
 	//if u > (1 << 31) {
