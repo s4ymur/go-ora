@@ -1,6 +1,7 @@
 package converters
 
 import (
+	"math/big"
 	"testing"
 )
 
@@ -12,23 +13,31 @@ SQL> SELECT dump(cast(-134.45 as binary_float)) FROM dual;
 Typ=100 Len=4: 60,249,140,204
 */
 func TestBinaryFloat(t *testing.T) {
+	const float32FractionalBinaryPrecision = 24 // BINARY_FLOAT also has binary precision 24
+
 	cases := []struct {
 		raw      []byte
 		expected float64
 	}{
 		{
 			[]byte{195, 6, 115, 51},
-			134.44,
+			134.45,
 		},
 		{
 			[]byte{60, 249, 140, 204},
-			-134.44,
+			-134.45,
 		},
 	}
 
 	for _, c := range cases {
 		v := ConvertBinaryFloat(c.raw)
-		if v != c.expected {
+
+		// convert to big.Float to compare considering the precision
+		vFloat := big.NewFloat(v).SetPrec(float32FractionalBinaryPrecision)
+		expectedFloat := big.NewFloat(c.expected).SetPrec(float32FractionalBinaryPrecision)
+
+		cmpResult := vFloat.Cmp(expectedFloat)
+		if cmpResult != 0 {
 			t.Errorf("expected %v, got %v", c.expected, v)
 		}
 	}
@@ -84,7 +93,7 @@ SQL> SELECT dump(cast(TO_YMINTERVAL('-5-3') as INTERVAL YEAR TO MONTH)) FROM dua
 Typ=182 Len=5: 127,255,255,251,57
 SQL> SELECT cast(TO_YMINTERVAL('-5-3') as INTERVAL YEAR TO MONTH) FROM dual;
 -05-03
-   
+
 SQL> SELECT dump(cast(TO_YMINTERVAL('00-10') as INTERVAL YEAR TO MONTH)) FROM dual;
 Typ=182 Len=5: 128,0,0,0,70
 SQL> SELECT cast(TO_YMINTERVAL('00-10') as INTERVAL YEAR TO MONTH) FROM dual;
