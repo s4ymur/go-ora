@@ -112,6 +112,8 @@ type Connection struct {
 	dbTimeZone               *time.Location // equivalent to database timezone used for timestamp with local timezone
 	dbServerTimeZone         *time.Location // equivalent to timezone of the server carry the database
 	dbServerTimeZoneExplicit *time.Location
+	dbTimeZoneIsUTC          bool
+	dbServerTimeZoneIsUTC    bool
 }
 
 type OracleConnector struct {
@@ -538,6 +540,7 @@ func (conn *Connection) getDBServerTimeZone() {
 		loc, err := time.LoadLocation(conn.connOption.DatabaseInfo.Location)
 		if err == nil {
 			conn.dbServerTimeZone = loc
+			conn.dbServerTimeZoneIsUTC = isEqualLoc(conn.dbServerTimeZone, time.UTC)
 			return
 		}
 		conn.tracer.Printf("Unable to configure timezone from LOCATION parameter: %v", err)
@@ -545,6 +548,7 @@ func (conn *Connection) getDBServerTimeZone() {
 
 	if conn.dbServerTimeZoneExplicit != nil {
 		conn.dbServerTimeZone = conn.dbServerTimeZoneExplicit
+		conn.dbServerTimeZoneIsUTC = isEqualLoc(conn.dbServerTimeZone, time.UTC)
 		return
 	}
 
@@ -552,8 +556,10 @@ func (conn *Connection) getDBServerTimeZone() {
 	err := conn.QueryRowContext(context.Background(), "SELECT SYSTIMESTAMP FROM DUAL", nil).Scan(&current)
 	if err != nil {
 		conn.dbServerTimeZone = time.UTC
+		conn.dbServerTimeZoneIsUTC = true
 	}
 	conn.dbServerTimeZone = current.Location()
+	conn.dbServerTimeZoneIsUTC = isEqualLoc(conn.dbServerTimeZone, time.UTC)
 }
 
 func (conn *Connection) getDBTimeZone() error {
@@ -570,7 +576,7 @@ func (conn *Connection) getDBTimeZone() error {
 		return err
 	}
 	conn.dbTimeZone = time.FixedZone(result, tzHours*60*60+tzMin*60)
-
+	conn.dbTimeZoneIsUTC = isEqualLoc(conn.dbTimeZone, time.UTC)
 	return nil
 }
 
@@ -1378,7 +1384,10 @@ func (conn *Connection) dataTypeNegotiation() error {
 			conn.tracer.Print("error during get DB timezone: ", err)
 			conn.tracer.Print("set DB timezone to: UTC(+00:00)")
 			conn.dbTimeZone = time.UTC
+			conn.dbTimeZoneIsUTC = true
 		}
+	} else {
+		conn.dbTimeZoneIsUTC = isEqualLoc(conn.dbTimeZone, time.UTC)
 	}
 	conn.tracer.Print("DB timezone: ", conn.dbTimeZone)
 	conn.session.TTCVersion = conn.dataNego.CompileTimeCaps[7]

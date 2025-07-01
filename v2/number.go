@@ -4,11 +4,12 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"github.com/sijms/go-ora/v2/converters"
 	"math"
 	"reflect"
 	"strconv"
 	"strings"
+
+	"github.com/sijms/go-ora/v2/converters"
 )
 
 type Number struct {
@@ -198,14 +199,13 @@ func (num *Number) decode() (strNum string, exp int, negative bool, err error) {
 	if negative && buf[len(buf)-1] == 0x66 {
 		buf = buf[:len(buf)-1]
 	}
-	var output []byte
+	var output []byte = make([]byte, 0, 2*len(buf))
 	for _, digit := range buf {
 		digit--
 		if negative {
 			digit = 100 - digit
 		}
-		output = append(output, (digit/10)+'0')
-		output = append(output, (digit%10)+'0')
+		output = append(output, (digit/10)+'0', (digit%10)+'0')
 	}
 	exp = exp*2 - len(output)
 	strNum = string(output)

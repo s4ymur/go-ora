@@ -562,7 +562,7 @@ func (par *ParameterInfo) decodePrimValue(conn *Connection, temporaryLobs *[][]b
 			return err
 		}
 
-		if !isEqualLoc(conn.dbServerTimeZone, time.UTC) {
+		if !conn.dbServerTimeZoneIsUTC {
 			par.oPrimValue = time.Date(tempTime.Year(), tempTime.Month(), tempTime.Day(),
 				tempTime.Hour(), tempTime.Minute(), tempTime.Second(), tempTime.Nanosecond(), conn.dbServerTimeZone)
 		} else {
@@ -581,7 +581,7 @@ func (par *ParameterInfo) decodePrimValue(conn *Connection, temporaryLobs *[][]b
 			return err
 		}
 		par.oPrimValue = tempTime
-		if !isEqualLoc(conn.dbTimeZone, time.UTC) {
+		if !conn.dbTimeZoneIsUTC {
 			par.oPrimValue = time.Date(tempTime.Year(), tempTime.Month(), tempTime.Day(),
 				tempTime.Hour(), tempTime.Minute(), tempTime.Second(), tempTime.Nanosecond(), conn.dbTimeZone)
 		}
