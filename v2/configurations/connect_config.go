@@ -17,8 +17,9 @@ import (
 type LobFetch int
 
 const (
-	INLINE LobFetch = 0
-	STREAM LobFetch = 1
+	INLINE                    LobFetch = 0
+	STREAM                    LobFetch = 1
+	SLIDE_BUFFER_SIZE_DEFAULT int      = 8192
 )
 
 type KerberosAuthInterface interface {
@@ -37,10 +38,12 @@ type ConnectionConfig struct {
 	DatabaseInfo
 	SessionInfo
 	AdvNegoServiceInfo
-	TraceFilePath string
-	TraceDir      string
-	PrefetchRows  int
-	Lob           LobFetch
+	TraceFilePath  string
+	TraceDir       string
+	PrefetchRows   int
+	Lob            LobFetch
+	SlideBufferSz  int
+	SlideBufferSz2 int
 }
 
 func (config *ConnectionConfig) ConnectionData() string {
@@ -85,7 +88,8 @@ func ParseConfig(dsn string) (*ConnectionConfig, error) {
 	}
 	q := u.Query()
 	config := &ConnectionConfig{
-		PrefetchRows: 25,
+		PrefetchRows:  25,
+		SlideBufferSz: SLIDE_BUFFER_SIZE_DEFAULT,
 		SessionInfo: SessionInfo{
 			ConnectTimeout: time.Duration(60 * time.Second),
 			Timeout:        0,
@@ -285,6 +289,16 @@ func ParseConfig(dsn string) (*ConnectionConfig, error) {
 			if err != nil {
 				config.PrefetchRows = 25
 			}
+		case "SLIDE_BUFFERS":
+			config.SlideBufferSz, err = strconv.Atoi(val[0])
+			if err != nil || config.SlideBufferSz < SLIDE_BUFFER_SIZE_DEFAULT {
+				config.SlideBufferSz = SLIDE_BUFFER_SIZE_DEFAULT
+			}
+		case "SLIDE_BUFFERS2":
+			config.SlideBufferSz2, _ = strconv.Atoi(val[0])
+			// if err != nil {
+			// 	config.SlideBufferSz2 = 0
+			// }
 		case "UNIX SOCKET":
 			config.SessionInfo.UnixAddress = val[0]
 		case "PROXY CLIENT NAME":
