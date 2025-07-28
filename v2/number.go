@@ -12,6 +12,8 @@ import (
 	"github.com/sijms/go-ora/v2/converters"
 )
 
+var zeroslice10 = []byte{'0', '0', '0', '0', '0', '0', '0', '0', '0', '0'}
+
 type Number struct {
 	data []byte
 }
@@ -302,6 +304,149 @@ func (num *Number) String() (string, error) {
 		strNum = "-" + strNum
 	}
 	return strNum, nil
+}
+
+func (num *Number) StringOptimized() (string, error) {
+	switch len(num.data) {
+	case 0:
+		return "", fmt.Errorf("invalid NUMBER")
+	case 1:
+		switch num.data[0] {
+		case 0x80: // isZero
+			return "0", nil
+		case 0: // _isNegInf
+			return "Infinity", nil
+		default:
+			return "", fmt.Errorf("invalid NUMBER")
+		}
+	case 2:
+		if num.data[0] == 255 && num.data[1] == 101 { //_isPosInf
+			return "Infinity", nil
+		}
+		/*
+			default:
+				if num.data[0] == 0x80 { // isZero ? seems not the case, but: isZero-> return len(num.data) > 0 && num.data[0] == 0x80
+					return "0", nil
+				}
+		*/
+	}
+
+	var neg int
+	var exp int
+	var buf []byte
+	if num.data[0]&0x80 == 0 {
+		if num.data[len(num.data)-1] == 0x66 {
+			buf = num.data[1 : len(num.data)-1]
+		} else {
+			buf = num.data[1:]
+		}
+		neg = 1
+		exp = 2 * (int(num.data[0]^0x7F) - 64 - len(buf))
+	} else {
+		buf = num.data[1:]
+		neg = 0
+		exp = 2 * (int(num.data[0]&0x7F) - 64 - len(buf))
+	}
+
+	var output []byte
+	if exp >= 0 { // eg 42e2 -> 4200, ints
+		output = make([]byte, 0, 2*len(buf)+neg+exp)
+
+		if neg == 1 {
+			output = append(output, '-')
+		}
+
+		lead0s := true
+		for _, digit := range buf {
+			if neg == 1 {
+				digit = 100 - digit - 1
+			} else {
+				digit -= 1
+			}
+			if lead0s { // stripping leading 0
+				if digit/10 != 0 {
+					output = append(output, (digit/10)+'0', (digit%10)+'0')
+				} else {
+					output = append(output, (digit%10)+'0')
+				}
+				lead0s = false
+			} else {
+				output = append(output, (digit/10)+'0', (digit%10)+'0')
+			}
+		}
+
+		// adding trailing 0s
+		i := exp
+		for ; i > 9; i -= 10 {
+			output = append(output, zeroslice10...)
+		}
+		if i > 0 {
+			output = append(output, zeroslice10[:i]...)
+		}
+
+		return string(output), nil //unsafe.String(unsafe.SliceData(output), len(output))
+	} else { // exp < 0, like 42e-2, floats
+		dotAt := len(buf) + exp/2 // '.' is always between num.data bytes, exp is always even (2x)
+
+		if /* 2*len(buf)+exp */ dotAt > 0 { // eg 42e-1 => 4.2 (+dot), but technically it is [04][20e]-2, 2*len(buf)+exp == 2
+			output = make([]byte, 0, 2*len(buf)+neg+1) // +1 for '.'
+		} else { // 2*len(buf)+exp <= 0
+			// if 2*len(buf) + exp == 0 eg 42e-2=0.42 -> 2*len(buf)+neg+2 or -exp+neg+2 (+dot+leading 0)
+			// if 2*len(buf) + exp < 0, eg 42e-3=0.042 -> -exp+neg+2 (+dot+leading 0)
+			output = make([]byte, 0, neg+2-exp) // +2 for '0.'
+		}
+
+		if neg == 1 {
+			output = append(output, '-')
+		}
+
+		if dotAt == 0 {
+			output = append(output, '0')
+		} else if dotAt < 0 { // adding leading 0s after '0.'
+			output = append(output, '0', '.')
+			i := -dotAt * 2
+			for ; i > 9; i -= 10 {
+				output = append(output, zeroslice10...)
+			}
+			if i > 0 {
+				output = append(output, zeroslice10[:i]...)
+			}
+		}
+
+		lead0s := dotAt > 0
+		for _, digit := range buf {
+			if neg == 1 {
+				digit = 100 - digit - 1
+			} else {
+				digit -= 1
+			}
+			if lead0s { // stripping leading 0
+				if digit/10 != 0 {
+					output = append(output, (digit/10)+'0', (digit%10)+'0')
+				} else {
+					output = append(output, (digit%10)+'0')
+				}
+				lead0s = false
+			} else if dotAt == 0 {
+				output = append(output, '.', (digit/10)+'0', (digit%10)+'0')
+			} else {
+				output = append(output, (digit/10)+'0', (digit%10)+'0')
+			}
+			dotAt -= 1
+		}
+
+		// stripping trailing 0, let's hope there is no '42.0' -> '42.'
+		j := len(output) - 1
+		for ; j >= 0 && output[j] == '0'; j-- {
+		}
+		/*
+			if output[j] == '.' {
+				j --
+			}
+		*/
+
+		return string(output[:j+1]), nil //unsafe.String(unsafe.SliceData(output), len(output))
+	}
 }
 
 func NewNumber(n interface{}) (*Number, error) {

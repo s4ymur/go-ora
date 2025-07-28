@@ -552,7 +552,7 @@ func (par *ParameterInfo) decodePrimValue(conn *Connection, temporaryLobs *[][]b
 		par.oPrimValue = par.BValue
 	case NUMBER:
 		num := Number{data: par.BValue}
-		par.oPrimValue, err = num.String()
+		par.oPrimValue, err = num.StringOptimized()
 		if err != nil {
 			return err
 		}
