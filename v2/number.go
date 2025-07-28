@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"unsafe"
 
 	"github.com/sijms/go-ora/v2/converters"
 )
@@ -384,7 +385,7 @@ func (num *Number) StringOptimized() (string, error) {
 			output = append(output, zeroslice10[:i]...)
 		}
 
-		return string(output), nil //unsafe.String(unsafe.SliceData(output), len(output))
+		return unsafe.String(unsafe.SliceData(output), len(output)), nil
 	} else { // exp < 0, like 42e-2, floats
 		dotAt := len(buf) + exp/2 // '.' is always between num.data bytes, exp is always even (2x)
 
@@ -445,7 +446,7 @@ func (num *Number) StringOptimized() (string, error) {
 			}
 		*/
 
-		return string(output[:j+1]), nil //unsafe.String(unsafe.SliceData(output), len(output))
+		return unsafe.String(unsafe.SliceData(output), len(output)), nil
 	}
 }
 
