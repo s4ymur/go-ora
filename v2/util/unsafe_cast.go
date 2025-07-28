@@ -58,5 +58,5 @@ func CastSliceToAnyStr(sbh *SlideBufferHolder, val []byte) any {
 	// return
 }
 
-//go:linkname Slicebytetostringtmp runtime/slicebytetostringtmp
+//go:linkname Slicebytetostringtmp runtime.slicebytetostringtmp
 func Slicebytetostringtmp(ptr *byte, n int) string
