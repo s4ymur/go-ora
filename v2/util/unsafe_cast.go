@@ -3,6 +3,7 @@ package util
 import (
 	"unsafe"
 	_ "unsafe"
+	_ "runtime"
 )
 
 var _PLACEHOLDERSTRVAL string = "PLACEHOLDERSTR"
