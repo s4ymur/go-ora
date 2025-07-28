@@ -24,6 +24,7 @@ import (
 	"github.com/sijms/go-ora/v2/trace"
 
 	"github.com/sijms/go-ora/v2/converters"
+	"github.com/sijms/go-ora/v2/util"
 )
 
 // var ErrConnectionReset error = errors.New("connection reset")
@@ -77,6 +78,44 @@ type Session struct {
 		tlsCertificates    []tls.Certificate
 	}
 	tracer trace.Tracer
+
+	/*
+		There are 3 places, where SlideBuffers are used:
+		- GetClr
+		- Number.Slice2
+		- unsafe_cast
+
+		SlideBuffers2 is used for unsafe_cast only due to alignment issues, always allocates 16 bytes
+		SlideBuffers is used for both GetClr and Number.Slice2 since slice size is different.
+
+		Allocations in Number.Slice2 may be exposed to client app,
+		allocations in unsafe_cast is always exposed, while for GetClr is never exposed.
+		So, this will cause memory leak if client holds returned object (string) for a long time.
+
+		There are 2 settings related to SlideBuffers, SLIDE_BUFFERS and SLIDE_BUFFERS2
+		The first one is always enabled, minimal value SLIDE_BUFFER_SIZE_DEFAULT int = 8192
+		It is used in GetClr, and Number.Slice2 as temporary buffer.
+
+		The second one is SLIDE_BUFFERS2, 0 by default. When it is not zero,
+		it enables optimization, avoid copying slices from SlideBuffers used in Number.Slice2,
+		and cast "string/slice" to "any" using SlideBuffers2 in unsafe_cast.go.
+		In this case, slices from both SlideBuffers and SlideBuffers2 passed to client app,
+		and if client holds there variables, this may cause memory leak
+		(since underlying array can't be released until slice is in use).
+
+		Tried also FnAllocBuf4Num FnCastString2Any FnCastSlice2Any as first-class object-functions
+		(see below, commented), but performance is worse.
+		// golang's functions are first-class https://golangbot.com/first-class-functions/
+
+		v2/configurations/connect_config.go
+		case "SLIDE_BUFFERS":
+		case "SLIDE_BUFFERS2":
+	*/
+	// FnAllocBuf4Num   func(n int) []byte
+	// FnCastString2Any func(val string) any
+	// FnCastSlice2Any  func(val []byte) any
+	SlideBuffers  *util.SlideBufferHolder
+	SlideBuffers2 *util.SlideBufferHolder
 }
 
 func NewSessionWithInputBufferForDebug(input []byte) *Session {
@@ -99,10 +138,50 @@ func NewSessionWithInputBufferForDebug(input []byte) *Session {
 		UseBigClrChunks: false,
 		ClrChunkSize:    0x40,
 		tracer:          trace.NilTracer(),
+		SlideBuffers:    util.NewSlideBufferHolder(configurations.SLIDE_BUFFER_SIZE_DEFAULT),
 	}
 }
 
 func NewSession(config *configurations.ConnectionConfig, tracer trace.Tracer) *Session {
+	slideBuffers := util.NewSlideBufferHolder(config.SlideBufferSz)
+	var slideBuffers2 *util.SlideBufferHolder
+
+	// var fnAllocBuf4Num func(n int) []byte
+	// var fnCastString2Any func(val string) any
+	// var fnCastSlice2Any func(val []byte) any
+	// fmt.Printf("sb:%d, sb2:%d\n", config.SlideBufferSz, config.SlideBufferSz2)
+
+	if config.SlideBufferSz2 != 0 {
+		// fnAllocBuf4Num = func(n int) []byte {
+		// 	// fmt.Println("AllocNum fast")
+		// 	return slideBuffers.AllocBytes(n)
+		// }
+
+		slideBuffers2 = util.NewSlideBufferHolder(config.SlideBufferSz2)
+		// fnCastString2Any = func(val string) any {
+		// 	// fmt.Println("String2Any fast")
+		// 	return util.CastStringToAnyStr(slideBuffers2, val)
+		// }
+		// fnCastSlice2Any = func(val []byte) any {
+		// 	// fmt.Println("Slice2Any fast")
+		// 	return util.CastSliceToAnyStr(slideBuffers2, val)
+		// }
+	} else {
+		// var tempIntBuffer []byte = make([]byte, 0, 64)
+		// fnAllocBuf4Num = func(n int) []byte {
+		// 	// fmt.Println("AllocNum slow")
+		// 	return tempIntBuffer[:n]
+		// }
+		// fnCastString2Any = func(val string) any {
+		// 	// fmt.Println("String2Any slow")
+		// 	return val
+		// }
+		// fnCastSlice2Any = func(val []byte) any {
+		// 	// fmt.Println("Slice2Any slow")
+		// 	return string(val)
+		// }
+	}
+
 	return &Session{
 		// ctx:             context.Background(),
 		conn:            nil,
@@ -114,6 +193,11 @@ func NewSession(config *configurations.ConnectionConfig, tracer trace.Tracer) *S
 		ClrChunkSize:    0x40,
 		lastPacket:      bytes.Buffer{},
 		tracer:          tracer,
+		// FnAllocBuf4Num:   fnAllocBuf4Num,
+		// FnCastString2Any: fnCastString2Any,
+		// FnCastSlice2Any:  fnCastSlice2Any,
+		SlideBuffers:  slideBuffers,
+		SlideBuffers2: slideBuffers2,
 	}
 }
 
@@ -1667,7 +1751,8 @@ func (session *Session) GetClr() (output []byte, err error) {
 	}
 	chunkSize := int(nb)
 	var chunk []byte
-	tempBuffer := bytes.NewBuffer(make([]byte, 0, chunkSize))
+	tempBuffer := session.SlideBuffers.NewSlideBuffer( /*chunkSize*/ ) // bytes.NewBuffer(make([]byte, 0, chunkSize))
+
 	if chunkSize == 0xFE {
 		for chunkSize > 0 {
 			//if session.IsBreak() {

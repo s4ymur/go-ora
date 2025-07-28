@@ -545,17 +545,20 @@ func (par *ParameterInfo) decodePrimValue(conn *Connection, temporaryLobs *[][]b
 		if err != nil {
 			return err
 		}
-		par.oPrimValue = strConv.Decode(par.BValue)
+		par.oPrimValue = util.CastStringToAnyStr(session.SlideBuffers2, strConv.Decode(par.BValue))
+		// par.oPrimValue = session.FnCastString2Any(strConv.Decode(par.BValue))
 	case Boolean:
 		par.oPrimValue = converters.DecodeBool(par.BValue)
 	case RAW, LongRaw:
 		par.oPrimValue = par.BValue
 	case NUMBER:
 		num := Number{data: par.BValue}
-		par.oPrimValue, err = num.StringOptimized()
+		slice2, err := num.Slice2(session.SlideBuffers /* conn.tempIntBuffer*/)
 		if err != nil {
 			return err
 		}
+		par.oPrimValue = util.CastSliceToAnyStr(session.SlideBuffers2, slice2)
+		// par.oPrimValue = session.FnCastSlice2Any(slice2)
 	case DATE, TIMESTAMP, TimeStampDTY:
 		tempTime, err := converters.DecodeDate(par.BValue)
 		if err != nil {

@@ -11,9 +11,14 @@ import (
 	"unsafe"
 
 	"github.com/sijms/go-ora/v2/converters"
+	"github.com/sijms/go-ora/v2/util"
 )
 
-var zeroslice10 = []byte{'0', '0', '0', '0', '0', '0', '0', '0', '0', '0'}
+var (
+	EMPTYSLICE = []byte{}
+	ZERO1SLICE = []byte{'0'}
+	INFINSLICE = []byte{'I', 'n', 'f', 'i', 'n', 'i', 't', 'y'}
+)
 
 type Number struct {
 	data []byte
@@ -211,7 +216,7 @@ func (num *Number) decode() (strNum string, exp int, negative bool, err error) {
 		output = append(output, (digit/10)+'0', (digit%10)+'0')
 	}
 	exp = exp*2 - len(output)
-	strNum = string(output)
+	strNum = unsafe.String(unsafe.SliceData(output), len(output))
 	return
 }
 
@@ -307,22 +312,23 @@ func (num *Number) String() (string, error) {
 	return strNum, nil
 }
 
-func (num *Number) StringOptimized() (string, error) {
+func (num *Number) Slice2( /*tempIntBuffer []byte*/ sbh *util.SlideBufferHolder) ([]byte, error) {
+	//fmt.Printf("num.data: %v\n", num.data)
 	switch len(num.data) {
 	case 0:
-		return "", fmt.Errorf("invalid NUMBER")
+		return EMPTYSLICE, fmt.Errorf("invalid NUMBER")
 	case 1:
 		switch num.data[0] {
 		case 0x80: // isZero
-			return "0", nil
+			return ZERO1SLICE, nil
 		case 0: // _isNegInf
-			return "Infinity", nil
+			return INFINSLICE, nil
 		default:
-			return "", fmt.Errorf("invalid NUMBER")
+			return EMPTYSLICE, fmt.Errorf("invalid NUMBER")
 		}
 	case 2:
 		if num.data[0] == 255 && num.data[1] == 101 { //_isPosInf
-			return "Infinity", nil
+			return INFINSLICE, nil
 		}
 		/*
 			default:
@@ -349,96 +355,114 @@ func (num *Number) StringOptimized() (string, error) {
 		exp = 2 * (int(num.data[0]&0x7F) - 64 - len(buf))
 	}
 
-	var output []byte
-	if exp >= 0 { // eg 42e2 -> 4200, ints
-		output = make([]byte, 0, 2*len(buf)+neg+exp)
-
+	var output []byte // = tempIntBuffer
+	if exp >= 0 {     // eg 42e2 -> 4200, ints
+		output = sbh.AllocBytes(2*len(buf) + neg + exp) // sbh.NewSlideBuffer().Alloc(2*len(buf) + neg + exp).Bytes()
+		// output = make([]byte, 0, 2*len(buf)+neg+exp)
+		//fmt.Printf("exp: %d, neg: %d, output.cap: %d, buf: %v\n", exp, neg, cap(output), buf)
+		p := 0
 		if neg == 1 {
-			output = append(output, '-')
+			output[p] = '-'
+			p += 1
 		}
 
-		lead0s := true
-		for _, digit := range buf {
+		// lead0s := true
+		for i, digit := range buf {
 			if neg == 1 {
 				digit = 100 - digit - 1
 			} else {
 				digit -= 1
 			}
-			if lead0s { // stripping leading 0
+			if i == 0 /* lead0s */ { // stripping leading 0
 				if digit/10 != 0 {
-					output = append(output, (digit/10)+'0', (digit%10)+'0')
+					output[p] = (digit / 10) + '0'
+					output[p+1] = (digit % 10) + '0'
+					p += 2
 				} else {
-					output = append(output, (digit%10)+'0')
+					output[p] = (digit % 10) + '0'
+					p += 1
 				}
-				lead0s = false
+				//lead0s = false
 			} else {
-				output = append(output, (digit/10)+'0', (digit%10)+'0')
+				output[p] = (digit / 10) + '0'
+				output[p+1] = (digit % 10) + '0'
+				p += 2
 			}
 		}
 
 		// adding trailing 0s
-		i := exp
-		for ; i > 9; i -= 10 {
-			output = append(output, zeroslice10...)
-		}
-		if i > 0 {
-			output = append(output, zeroslice10[:i]...)
+		for i := exp; i > 0; i-- {
+			output[p] = '0'
+			p += 1
 		}
 
-		return unsafe.String(unsafe.SliceData(output), len(output)), nil
+		// fmt.Printf("converted number: %s\n", string(output))
+		return output[:p], nil //unsafe.String(unsafe.SliceData(output[:p]), len(output[:p]))
 	} else { // exp < 0, like 42e-2, floats
 		dotAt := len(buf) + exp/2 // '.' is always between num.data bytes, exp is always even (2x)
 
 		if /* 2*len(buf)+exp */ dotAt > 0 { // eg 42e-1 => 4.2 (+dot), but technically it is [04][20e]-2, 2*len(buf)+exp == 2
-			output = make([]byte, 0, 2*len(buf)+neg+1) // +1 for '.'
+			output = sbh.AllocBytes(2*len(buf) + neg + 1) // sbh.NewSlideBuffer().Alloc(2*len(buf) + neg + 1).Bytes() // +1 for '.'
 		} else { // 2*len(buf)+exp <= 0
 			// if 2*len(buf) + exp == 0 eg 42e-2=0.42 -> 2*len(buf)+neg+2 or -exp+neg+2 (+dot+leading 0)
 			// if 2*len(buf) + exp < 0, eg 42e-3=0.042 -> -exp+neg+2 (+dot+leading 0)
-			output = make([]byte, 0, neg+2-exp) // +2 for '0.'
+			output = sbh.AllocBytes(neg + 2 - exp) //sbh.NewSlideBuffer().Alloc(neg + 2 - exp).Bytes() // +2 for '0.'
 		}
 
+		p := 0
 		if neg == 1 {
-			output = append(output, '-')
+			output[p] = '-'
+			p += 1
 		}
+
+		//fmt.Printf("exp: %d, neg: %d, dotAt: %d, 2len+exp: %d, output.cap: %d, buf: %v\n", exp, neg, dotAt, 2*len(buf)+exp, cap(output), buf)
 
 		if dotAt == 0 {
-			output = append(output, '0')
+			output[p] = '0'
+			p += 1
 		} else if dotAt < 0 { // adding leading 0s after '0.'
-			output = append(output, '0', '.')
-			i := -dotAt * 2
-			for ; i > 9; i -= 10 {
-				output = append(output, zeroslice10...)
-			}
-			if i > 0 {
-				output = append(output, zeroslice10[:i]...)
+			output[p] = '0'
+			output[p+1] = '.'
+			p += 2
+			for i := -dotAt * 2; i > 0; i-- {
+				output[p] = '0'
+				p += 1
 			}
 		}
 
-		lead0s := dotAt > 0
-		for _, digit := range buf {
+		// lead0s := dotAt > 0
+		for i, digit := range buf {
 			if neg == 1 {
 				digit = 100 - digit - 1
 			} else {
 				digit -= 1
 			}
-			if lead0s { // stripping leading 0
+			if i == 0 && dotAt > 0 /*lead0s*/ { // stripping leading 0
 				if digit/10 != 0 {
-					output = append(output, (digit/10)+'0', (digit%10)+'0')
+					output[p] = (digit / 10) + '0'
+					output[p+1] = (digit % 10) + '0'
+					p += 2
 				} else {
-					output = append(output, (digit%10)+'0')
+					output[p] = (digit % 10) + '0'
+					p += 1
 				}
-				lead0s = false
+				// lead0s = false
 			} else if dotAt == 0 {
-				output = append(output, '.', (digit/10)+'0', (digit%10)+'0')
+				output[p] = '.'
+				output[p+1] = (digit / 10) + '0'
+				output[p+2] = (digit % 10) + '0'
+				p += 3
 			} else {
-				output = append(output, (digit/10)+'0', (digit%10)+'0')
+				output[p] = (digit / 10) + '0'
+				output[p+1] = (digit % 10) + '0'
+				p += 2
 			}
 			dotAt -= 1
 		}
 
 		// stripping trailing 0, let's hope there is no '42.0' -> '42.'
-		j := len(output) - 1
-		for ; j >= 0 && output[j] == '0'; j-- {
+		p = p - 1
+		for ; p >= 0 && output[p] == '0'; p-- {
 		}
 		/*
 			if output[j] == '.' {
@@ -446,7 +470,8 @@ func (num *Number) StringOptimized() (string, error) {
 			}
 		*/
 
-		return unsafe.String(unsafe.SliceData(output), len(output)), nil
+		// fmt.Printf("converted number: %s, %s\n", string(output), string(output[:j+1]))
+		return output[:p+1], nil //unsafe.String(unsafe.SliceData(output), len(output))
 	}
 }
 
