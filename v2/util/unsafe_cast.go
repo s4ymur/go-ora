@@ -2,8 +2,6 @@ package util
 
 import (
 	"unsafe"
-	_ "unsafe"
-	_ "runtime"
 )
 
 var _PLACEHOLDERSTRVAL string = "PLACEHOLDERSTR"
@@ -58,5 +56,6 @@ func CastSliceToAnyStr(sbh *SlideBufferHolder, val []byte) any {
 	// return
 }
 
-//go:linkname slicebytetostringtmp runtime.slicebytetostringtmp
-func slicebytetostringtmp(ptr *byte, n int) string
+func slicebytetostringtmp(ptr *byte, n int) string {
+	return unsafe.String(ptr, n)
+}
