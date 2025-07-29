@@ -1,6 +1,6 @@
 module github.com/sijms/go-ora/v2
 
-go 1.24.5
+go 1.18
 
 require (
 	github.com/godoes/gorm-oracle v1.6.11
