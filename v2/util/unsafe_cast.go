@@ -37,10 +37,6 @@ func CastStringToAnyStr(sbh *SlideBufferHolder, val string) any {
 	// return
 }
 
-func slicebytetostringtmp(ptr *byte, n int) string {
-	return unsafe.String(ptr, n)
-}
-
 // Should be guaranteed that "val" slice is never reused (or allocated on stack); must come, for example from (another) SlideBuffer
 // slice -> string -> any is in general:
 // - slicebytetostring(byte[]->string) (mallocgc + memmove) - create memory region for "string slice" and copy data
@@ -52,7 +48,7 @@ func CastSliceToAnyStr(sbh *SlideBufferHolder, val []byte) any {
 	} else if len(val) == 0 {
 		return ""
 	}
-	return _castStringToAnyStr(sbh, slicebytetostringtmp(&val[0], len(val)))
+	return _castStringToAnyStr(sbh, unsafe.String(&val[0], len(val)))
 	// var tmpslc []byte = sbh.AllocBytes(_PLACEHOLDERSTRVALSZ)
 	// *(*string)(unsafe.Pointer(&tmpslc[0])) = slicebytetostringtmp(&val[0], len(val))
 	// tmpany = _PLACEHOLDERANYSTR
