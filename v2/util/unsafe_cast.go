@@ -37,8 +37,9 @@ func CastStringToAnyStr(sbh *SlideBufferHolder, val string) any {
 	// return
 }
 
-//go:linkname slicebytetostringtmp runtime.slicebytetostringtmp
-func slicebytetostringtmp(ptr *byte, n int) string
+func slicebytetostringtmp(ptr *byte, n int) string {
+	return unsafe.String(ptr, n)
+}
 
 // Should be guaranteed that "val" slice is never reused (or allocated on stack); must come, for example from (another) SlideBuffer
 // slice -> string -> any is in general:
