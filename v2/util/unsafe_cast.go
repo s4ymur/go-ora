@@ -48,7 +48,7 @@ func CastSliceToAnyStr(sbh *SlideBufferHolder, val []byte) any {
 	} else if len(val) == 0 {
 		return ""
 	}
-	return _castStringToAnyStr(sbh, unsafeString(&val[0], len(val)))
+	return _castStringToAnyStr(sbh, string(val))
 	// var tmpslc []byte = sbh.AllocBytes(_PLACEHOLDERSTRVALSZ)
 	// *(*string)(unsafe.Pointer(&tmpslc[0])) = slicebytetostringtmp(&val[0], len(val))
 	// tmpany = _PLACEHOLDERANYSTR
