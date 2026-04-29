@@ -417,6 +417,9 @@ func decodeObject(conn *Connection, parent *ParameterInfo, temporaryLobs *[][]by
 			}
 			pars := make([]ParameterInfo, 0, itemsLen)
 			for x := 0; x < itemsLen; x++ {
+				if parent.cusType == nil {
+					return fmt.Errorf("failed decoding custom type %s.%s", parent.SchemaName, parent.TypeName)
+				}
 				tempPar := parent.cusType.attribs[0]
 				// if parent.cusType.isRegularArray() {
 				//
